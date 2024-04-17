@@ -22,21 +22,21 @@ static cublasHandle_t cublas_handle;
 // ----------------------------------------------------------------------------
 // CPU code reference
 
-void matmul_backward_cpu(float* dinp, float* dweight, float* dbias,
-                     float* dout, float* inp, float* weight,
-                     int B, int T, int C, int OC) {
+void matmul_backward_cpu(float *dinp, float *dweight, float *dbias,
+                         float *dout, float *inp, float *weight,
+                         int B, int T, int C, int OC) {
     // most of the running time is spent here and in matmul_forward
     // this backward could be done in a single "round" of loops
     // but that doesn't afford an efficient parallelization strategy
 
     // backward into inp first, parallelize over B,T
-    #pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(2)
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
-            float* dout_bt = dout + b * T * OC + t * OC;
-            float* dinp_bt = dinp + b * T * C + t * C;
+            float *dout_bt = dout + b * T * OC + t * OC;
+            float *dinp_bt = dinp + b * T * C + t * C;
             for (int o = 0; o < OC; o++) {
-                float* wrow = weight + o*C;
+                float *wrow = weight + o * C;
                 float d = dout_bt[o];
                 for (int i = 0; i < C; i++) {
                     dinp_bt[i] += wrow[i] * d;
@@ -45,14 +45,14 @@ void matmul_backward_cpu(float* dinp, float* dweight, float* dbias,
         }
     }
     // backward into weight/bias, parallelize over output channels OC
-    #pragma omp parallel for
+#pragma omp parallel for
     for (int o = 0; o < OC; o++) {
         double sum = 0.0f;
         for (int b = 0; b < B; b++) {
             for (int t = 0; t < T; t++) {
-                float* dout_bt = dout + b * T * OC + t * OC;
-                float* inp_bt = inp + b * T * C + t * C;
-                float* dwrow = dweight + o*C;
+                float *dout_bt = dout + b * T * OC + t * OC;
+                float *inp_bt = inp + b * T * C + t * C;
+                float *dwrow = dweight + o * C;
                 float d = dout_bt[o];
                 if (dbias != NULL) { sum += d; }
                 for (int i = 0; i < C; i++) {
@@ -60,7 +60,7 @@ void matmul_backward_cpu(float* dinp, float* dweight, float* dbias,
                 }
             }
         }
-        if (dbias != NULL){dbias[o] = sum;}
+        if (dbias != NULL) { dbias[o] = sum; }
     }
 }
 
@@ -68,7 +68,7 @@ void matmul_backward_cpu(float* dinp, float* dweight, float* dbias,
 // GPU kernels
 
 // naive kernel to backpropagate only the bias, it's just a sum :'(
-__global__ void matmul_backward_bias_kernel_naive(float* dbias, const float* dout, int B, int T, int OC) {
+__global__ void matmul_backward_bias_kernel_naive(float *dbias, const float *dout, int B, int T, int OC) {
     int o = blockIdx.x * blockDim.x + threadIdx.x;
     if (o < OC) {
         double sum = 0.0f;
@@ -82,12 +82,12 @@ __global__ void matmul_backward_bias_kernel_naive(float* dbias, const float* dou
 }
 
 // use shared memory and coarsening + reductions
-__global__ void matmul_backward_bias_kernel_faster(float* dbias, const float* dout, int B, int T, int OC) {
+__global__ void matmul_backward_bias_kernel_faster(float *dbias, const float *dout, int B, int T, int OC) {
     extern __shared__ float shared[];
     int o = blockIdx.x; // range [0, OC)
     int tid = threadIdx.x; // range [0, block_size)
     int block_size = blockDim.x;
-    const float* x = dout + o;
+    const float *x = dout + o;
     // thread coarsening
     double sum = 0.0f;
     for (int i = tid; i < B * T; i += block_size) {
@@ -112,8 +112,8 @@ __global__ void matmul_backward_bias_kernel_faster(float* dbias, const float* do
 // kernel launcher
 
 // version1: simple cuBLAS calls
-void matmul_backward1(float* dinp, float* dweight, float* dbias,
-                      float* dout, float* inp, float* weight, float* ones,
+void matmul_backward1(float *dinp, float *dweight, float *dbias,
+                      float *dout, float *inp, float *weight, float *ones,
                       int B, int T, int C, int OC) {
     float alpha = 1.0f;
     float beta = 1.0f; // note we must use beta = 1.0 so that we do a +=, as we should, because gradients add
@@ -132,9 +132,13 @@ void matmul_backward1(float* dinp, float* dweight, float* dbias,
     // cublasSgemm(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, OC, B*T, C, &alpha, weight, C, inp, C, &beta, out, OC);
 
     // backward to input
-    cublasCheck(cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, C, B*T, OC, &alpha, weight, C, dout, OC, &beta, dinp, C));
+    cublasCheck(
+            cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, C, B * T, OC, &alpha, weight, C, dout, OC, &beta, dinp,
+                        C));
     // backward to weight
-    cublasCheck(cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_T, C, OC, B*T, &alpha, inp, C, dout, OC, &beta, dweight, C));
+    cublasCheck(
+            cublasSgemm(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_T, C, OC, B * T, &alpha, inp, C, dout, OC, &beta, dweight,
+                        C));
     // backward to bias, if given
     if (dbias != NULL) {
 
@@ -158,7 +162,7 @@ void matmul_backward1(float* dinp, float* dweight, float* dbias,
         // matmul_backward_bias_kernel<<<grid_size, block_size>>>(dbias, dout, B, T, OC);
 
         // bit faster
-        const int block_size=512;
+        const int block_size = 512;
         dim3 block_dim(block_size);
         dim3 grid_dim(OC);
         size_t shared_mem_size = block_size * sizeof(float);
@@ -167,8 +171,8 @@ void matmul_backward1(float* dinp, float* dweight, float* dbias,
 }
 
 void matmul_backward(int kernel_num,
-                     float* dinp, float* dweight, float* dbias,
-                     float* dout, float* inp, float* weight, float* ones,
+                     float *dinp, float *dweight, float *dbias,
+                     float *dout, float *inp, float *weight, float *ones,
                      int B, int T, int C, int OC) {
     switch (kernel_num) {
         case 1:
@@ -205,22 +209,22 @@ int main(int argc, char **argv) {
     cublasCheck(cublasSetMathMode(cublas_handle, cublas_math_mode));
 
     // create host memory of random numbers
-    float* dinp = make_zeros_float(B * T * C);
-    float* dweight = make_zeros_float(OC * C);
-    float* dbias = make_zeros_float(OC);
-    float* dout = make_random_float(B * T * OC);
-    float* inp = make_random_float(B * T * C);
-    float* weight = make_random_float(OC * C);
-    float* ones = make_ones_float(OC);
+    float *dinp = make_zeros_float(B * T * C);
+    float *dweight = make_zeros_float(OC * C);
+    float *dbias = make_zeros_float(OC);
+    float *dout = make_random_float(B * T * OC);
+    float *inp = make_random_float(B * T * C);
+    float *weight = make_random_float(OC * C);
+    float *ones = make_ones_float(OC);
 
     // move to GPU
-    float* d_dinp;
-    float* d_dweight;
-    float* d_dbias;
-    float* d_dout;
-    float* d_inp;
-    float* d_weight;
-    float* d_ones;
+    float *d_dinp;
+    float *d_dweight;
+    float *d_dbias;
+    float *d_dout;
+    float *d_inp;
+    float *d_weight;
+    float *d_ones;
     cudaCheck(cudaMalloc(&d_dinp, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_dweight, OC * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_dbias, OC * sizeof(float)));

@@ -26,31 +26,31 @@ version 3 uses cooperative groups to parallelize over all of B,T,C
 // CPU code reference
 
 // GPT-2 layernorm forward pass
-void layernorm_forward_cpu(float* out, float* mean, float* rstd,
-                       const float* inp, const float* weight, const float* bias,
-                       int B, int T, int C) {
+void layernorm_forward_cpu(float *out, float *mean, float *rstd,
+                           const float *inp, const float *weight, const float *bias,
+                           int B, int T, int C) {
     float eps = 1e-5f;
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
             // seek to the input position inp[b,t,:]
-            const float* x = inp + b * T * C + t * C;
+            const float *x = inp + b * T * C + t * C;
             // calculate the mean
             float m = 0.0f;
             for (int i = 0; i < C; i++) {
                 m += x[i];
             }
-            m = m/C;
+            m = m / C;
             // calculate the variance (without any bias correction)
             float v = 0.0f;
             for (int i = 0; i < C; i++) {
                 float xshift = x[i] - m;
                 v += xshift * xshift;
             }
-            v = v/C;
+            v = v / C;
             // calculate the rstd
             float s = 1.0f / sqrtf(v + eps);
             // seek to the output position in out[b,t,:]
-            float* out_bt = out + b * T * C + t * C;
+            float *out_bt = out + b * T * C + t * C;
             for (int i = 0; i < C; i++) {
                 float n = (s * (x[i] - m)); // normalized output
                 float o = n * weight[i] + bias[i]; // scale and shift it
@@ -67,15 +67,15 @@ void layernorm_forward_cpu(float* out, float* mean, float* rstd,
 // GPU kernels
 
 // naive drag and drop implementation into kernel, parallelize over B,T, loop over C
-__global__ void layernorm_forward_kernel1(float* out, float* mean, float* rstd,
-                                 const float* inp, const float* weight, const float* bias,
-                                 int N, int C) {
+__global__ void layernorm_forward_kernel1(float *out, float *mean, float *rstd,
+                                          const float *inp, const float *weight, const float *bias,
+                                          int N, int C) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     float eps = 1e-5f;
 
     if (idx < N) {
         // seek to the input position inp[idx,:]
-        const float* x = inp + idx * C;
+        const float *x = inp + idx * C;
         // calculate the mean
         float m = 0.0f;
         for (int i = 0; i < C; i++) {
@@ -92,7 +92,7 @@ __global__ void layernorm_forward_kernel1(float* out, float* mean, float* rstd,
         // calculate the rstd
         float s = 1.0f / sqrtf(v + eps);
         // seek to the output position in out[idx,:]
-        float* out_idx = out + idx * C;
+        float *out_idx = out + idx * C;
         for (int i = 0; i < C; i++) {
             float n = (s * (x[i] - m)); // normalized output
             float o = n * weight[i] + bias[i]; // scale and shift it
@@ -104,11 +104,11 @@ __global__ void layernorm_forward_kernel1(float* out, float* mean, float* rstd,
     }
 }
 
-__global__ void mean_kernel(float* mean, const float* inp, int N, int C, int block_size) {
+__global__ void mean_kernel(float *mean, const float *inp, int N, int C, int block_size) {
     extern __shared__ float shared[];
     int idx = blockIdx.x; // range [0, B*T)
     int tid = threadIdx.x; // range [0, block_size)
-    const float* x = inp + idx * C;
+    const float *x = inp + idx * C;
     // thread coarsening
     float sum = 0.0f;
     for (int i = tid; i < C; i += block_size) {
@@ -129,11 +129,11 @@ __global__ void mean_kernel(float* mean, const float* inp, int N, int C, int blo
     }
 }
 
-__global__ void rstd_kernel(float* rstd, const float* inp, const float* mean, int N, int C, int block_size) {
+__global__ void rstd_kernel(float *rstd, const float *inp, const float *mean, int N, int C, int block_size) {
     extern __shared__ float shared[];
     int idx = blockIdx.x; // range [0, B*T)
     int tid = threadIdx.x; // range [0, block_size)
-    const float* x = inp + idx * C;
+    const float *x = inp + idx * C;
     float m = mean[idx];
     // thread coarsening
     float sum = 0.0f;
@@ -156,8 +156,8 @@ __global__ void rstd_kernel(float* rstd, const float* inp, const float* mean, in
     }
 }
 
-__global__ void normalization_kernel(float* out, const float* inp, float* mean, float* rstd,
-                                     const float* weight, const float* bias, int B, int T, int C) {
+__global__ void normalization_kernel(float *out, const float *inp, float *mean, float *rstd,
+                                     const float *weight, const float *bias, int B, int T, int C) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     int bt = idx / C;
@@ -174,28 +174,28 @@ __global__ void normalization_kernel(float* out, const float* inp, float* mean, 
 
 // ----------------------------------------------------------------------------
 
-__global__ void layernorm_forward_kernel3(float* __restrict__ out, float* __restrict__ mean, float* __restrict__ rstd,
-                                    const float*  __restrict__ inp, const float*  __restrict__ weight,
-                                    const float* __restrict__ bias, int N, int C) {
+__global__ void layernorm_forward_kernel3(float *__restrict__ out, float *__restrict__ mean, float *__restrict__ rstd,
+                                          const float *__restrict__ inp, const float *__restrict__ weight,
+                                          const float *__restrict__ bias, int N, int C) {
     namespace cg = cooperative_groups;
     cg::thread_block block = cg::this_thread_block();
     cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
     int idx = blockIdx.x * warp.meta_group_size() + warp.meta_group_rank();
-    if(idx >= N) {
+    if (idx >= N) {
         return;
     }
 
     // the row of input that this group of threads is responsible for
-    const float* x = inp + idx * C;
+    const float *x = inp + idx * C;
 
     // mean
     float sum = 0.0f;
     for (int i = warp.thread_rank(); i < C; i += warp.size()) {
         sum += x[i];
     }
-    sum = cg::reduce(warp, sum, cg::plus<float>{});
+    sum = cg::reduce(warp, sum, cg::plus < float > {});
     float m = sum / C;
-    if(warp.thread_rank() == 0 && mean != nullptr) {
+    if (warp.thread_rank() == 0 && mean != nullptr) {
         __stcs(mean + idx, m);
     }
 
@@ -205,40 +205,40 @@ __global__ void layernorm_forward_kernel3(float* __restrict__ out, float* __rest
         float diff = x[i] - m;
         sum += diff * diff;
     }
-    sum = cg::reduce(warp, sum, cg::plus<float>{});
+    sum = cg::reduce(warp, sum, cg::plus < float > {});
     float s = rsqrtf(sum / C + 1e-5f);
-    if(warp.thread_rank() == 0 && rstd != nullptr) {
+    if (warp.thread_rank() == 0 && rstd != nullptr) {
         __stcs(rstd + idx, s);
     }
 
     // final normalization and scaling by weight/bias
-    float* o = out + idx * C;
+    float *o = out + idx * C;
     for (int c = warp.thread_rank(); c < C; c += warp.size()) {
         // load and store using the .cs "streaming" hint to the compiler,
         // indicating that this data will not be reused soon, and can be streamed through the caches
         // this allows the threads to get more cache-hits for the (shared) weight and bias parameters
-        float n = s * (__ldcs(x+c) - m);
-        __stcs(o+c, n * weight[c] + bias[c]);
+        float n = s * (__ldcs(x + c) - m);
+        __stcs(o + c, n * weight[c] + bias[c]);
     }
 }
 
 // ----------------------------------------------------------------------------
 // kernel launcher
 
-void layernorm_forward1(float* out, float* mean, float* rstd,
-                           const float* inp, const float* weight, const float* bias,
-                           int B, int T, int C,
-                           const int block_size) {
+void layernorm_forward1(float *out, float *mean, float *rstd,
+                        const float *inp, const float *weight, const float *bias,
+                        int B, int T, int C,
+                        const int block_size) {
     const int N = B * T;
     const int grid_size = ceil_div(N, block_size);
     layernorm_forward_kernel1<<<grid_size, block_size>>>(out, mean, rstd, inp, weight, bias, N, C);
     cudaCheck(cudaGetLastError());
 }
 
-void layernorm_forward2(float* out, float* mean, float* rstd,
-                       const float* inp, const float* weight, const float* bias,
-                       int B, int T, int C,
-                       const int block_size) {
+void layernorm_forward2(float *out, float *mean, float *rstd,
+                        const float *inp, const float *weight, const float *bias,
+                        int B, int T, int C,
+                        const int block_size) {
     int N = B * T;
     // in mean and rstd, threads cooperate within blocks via reductions
     mean_kernel<<<B * T, block_size, block_size * sizeof(float)>>>(mean, inp, N, C, block_size);
@@ -252,10 +252,10 @@ void layernorm_forward2(float* out, float* mean, float* rstd,
     cudaCheck(cudaGetLastError());
 }
 
-void layernorm_forward3(float* out, float* mean, float* rstd,
-                       const float* inp, const float* weight, const float* bias,
-                       int B, int T, int C,
-                       const int block_size) {
+void layernorm_forward3(float *out, float *mean, float *rstd,
+                        const float *inp, const float *weight, const float *bias,
+                        int B, int T, int C,
+                        const int block_size) {
     assert(block_size % 32 == 0);
     const int N = B * T;
     const int grid_size = ceil_div(N * 32, block_size);
@@ -265,10 +265,10 @@ void layernorm_forward3(float* out, float* mean, float* rstd,
 
 // kernel version dispatch
 void layernorm_forward(int kernel_num,
-                    float* out, float* mean, float* rstd,
-                    const float* inp, const float* weight, const float* bias,
-                    int B, int T, int C,
-                    const int block_size) {
+                       float *out, float *mean, float *rstd,
+                       const float *inp, const float *weight, const float *bias,
+                       int B, int T, int C,
+                       const int block_size) {
     switch (kernel_num) {
         case 1:
             layernorm_forward1(out, mean, rstd, inp, weight, bias, B, T, C, block_size);
@@ -298,20 +298,20 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // create host memory of random numbers
-    float* out = (float*)malloc(B * T * C * sizeof(float));
-    float* mean = (float*)malloc(B * T * sizeof(float));
-    float* rstd = (float*)malloc(B * T * sizeof(float));
-    float* inp = make_random_float(B * T * C);
-    float* weight = make_random_float(C);
-    float* bias = make_random_float(C);
+    float *out = (float *) malloc(B * T * C * sizeof(float));
+    float *mean = (float *) malloc(B * T * sizeof(float));
+    float *rstd = (float *) malloc(B * T * sizeof(float));
+    float *inp = make_random_float(B * T * C);
+    float *weight = make_random_float(C);
+    float *bias = make_random_float(C);
 
     // move to GPU
-    float* d_out;
-    float* d_mean;
-    float* d_rstd;
-    float* d_inp;
-    float* d_weight;
-    float* d_bias;
+    float *d_out;
+    float *d_mean;
+    float *d_rstd;
+    float *d_inp;
+    float *d_weight;
+    float *d_bias;
     cudaCheck(cudaMalloc(&d_out, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_mean, B * T * sizeof(float)));
     cudaCheck(cudaMalloc(&d_rstd, B * T * sizeof(float)));
@@ -330,9 +330,9 @@ int main(int argc, char **argv) {
     printf("Using kernel %d\n", kernel_num);
 
     int block_sizes[] = {32, 64, 128, 256, 512, 1024};
-    float* out_gpu = (float*)malloc(B * T * C * sizeof(float));
-    float* mean_gpu = (float*)malloc(B * T * sizeof(float));
-    float* rstd_gpu = (float*)malloc(B * T * sizeof(float));
+    float *out_gpu = (float *) malloc(B * T * C * sizeof(float));
+    float *mean_gpu = (float *) malloc(B * T * sizeof(float));
+    float *rstd_gpu = (float *) malloc(B * T * sizeof(float));
 
     layernorm_forward_cpu(out, mean, rstd, inp, weight, bias, B, T, C);
 

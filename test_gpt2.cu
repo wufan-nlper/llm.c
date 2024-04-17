@@ -1,8 +1,9 @@
 #define TESTING
+
 #include "train_gpt2.cu"
 
 // poor man's tensor checker
-int check_tensor(float *a, float *b, int n, const char* label) {
+int check_tensor(float *a, float *b, int n, const char *label) {
     int print_upto = 5;
     int ok = 1;
     printf("%s\n", label);
@@ -59,8 +60,14 @@ int main(int argc, char *argv[]) {
     FILE *state_file = fopenCheck("gpt2_124M_debug_state.bin", "rb");
     int state_header[256];
     freadCheck(state_header, sizeof(int), 256, state_file);
-    if (state_header[0] != 20240327) { printf("Bad magic state file"); exit(1); }
-    if (state_header[1] != 1) { printf("Bad version in state file"); exit(1); }
+    if (state_header[0] != 20240327) {
+        printf("Bad magic state file");
+        exit(1);
+    }
+    if (state_header[1] != 1) {
+        printf("Bad version in state file");
+        exit(1);
+    }
     int B = state_header[2]; // batch size, e.g. 4
     int T = state_header[3]; // time / sequence length (e.g. 64, up to maxT)
     assert(0 <= T && T <= maxT);
@@ -70,19 +77,19 @@ int main(int argc, char *argv[]) {
 
     ParameterTensors expected_grads; // will be read from file (from PyTorch)
     ParameterTensors calculated_grads; // will be calculated by us
-    float* expected_grads_memory = malloc_and_point_parameters(&expected_grads, model.param_sizes, 0);
-    float* calculated_grads_memory = malloc_and_point_parameters(&calculated_grads, model.param_sizes, 0);
+    float *expected_grads_memory = malloc_and_point_parameters(&expected_grads, model.param_sizes, 0);
+    float *calculated_grads_memory = malloc_and_point_parameters(&calculated_grads, model.param_sizes, 0);
 
     // inputs and expected outputs, only used for error checking
-    int* x = (int*)mallocCheck(B * T * sizeof(int));
-    int* y = (int*)mallocCheck(B * T * sizeof(int));
-    float* expected_logits = (float*) mallocCheck(B * T * V * sizeof(float));
-    float* expected_loss = (float*) mallocCheck(1 * sizeof(float));
+    int *x = (int *) mallocCheck(B * T * sizeof(int));
+    int *y = (int *) mallocCheck(B * T * sizeof(int));
+    float *expected_logits = (float *) mallocCheck(B * T * V * sizeof(float));
+    float *expected_loss = (float *) mallocCheck(1 * sizeof(float));
 
     // read reference information from Python
-    freadCheck(x, sizeof(int), B*T, state_file);
-    freadCheck(y, sizeof(int), B*T, state_file);
-    freadCheck(expected_logits, sizeof(float), B*T*V, state_file);
+    freadCheck(x, sizeof(int), B * T, state_file);
+    freadCheck(y, sizeof(int), B * T, state_file);
+    freadCheck(expected_logits, sizeof(float), B * T * V, state_file);
     freadCheck(expected_loss, sizeof(float), 1, state_file);
     freadCheck(expected_grads_memory, sizeof(float), model.num_parameters, state_file);
     fcloseCheck(state_file);
@@ -106,21 +113,21 @@ int main(int argc, char *argv[]) {
 
             // at this point, target should be equal to expected_logits, let's compare
             // copy logits to CPU so we can compare them
-            float* logits_cpu = (float*)mallocCheck(B * T * V * sizeof(float));
+            float *logits_cpu = (float *) mallocCheck(B * T * V * sizeof(float));
             cudaMemcpy(logits_cpu, model.acts.logits, B * T * V * sizeof(float), cudaMemcpyDeviceToHost);
             int logits_ok = 1;
-            for (int i=0; i<B*T*V; i++) {
-                if(i < 3) {
+            for (int i = 0; i < B * T * V; i++) {
+                if (i < 3) {
                     printf("%f %f\n", expected_logits[i], logits_cpu[i]);
                 }
                 if (fabsf(expected_logits[i] - logits_cpu[i]) >= 1e-2) {
                     printf("MISMATCH AT INDEX %d: ", i);
-                    printf("%f %f\n", expected_logits[i],logits_cpu[i]);
+                    printf("%f %f\n", expected_logits[i], logits_cpu[i]);
                     logits_ok = 0;
                     break;
                 }
             }
-            if(!logits_ok) { printf("NOT "); }
+            if (!logits_ok) { printf("NOT "); }
             printf("OK (LOGITS)\n");
             allok = allok && logits_ok;
             free(logits_cpu);
@@ -168,11 +175,12 @@ int main(int argc, char *argv[]) {
             // check_tensor(calculated_grads.wpe, expected_grads.wpe, maxT * C, "wpe");
 
             // compare the gradients ona the parameters all at once
-            cudaMemcpy(calculated_grads_memory, model.grads_memory, model.num_parameters * sizeof(float), cudaMemcpyDeviceToHost);
+            cudaMemcpy(calculated_grads_memory, model.grads_memory, model.num_parameters * sizeof(float),
+                       cudaMemcpyDeviceToHost);
             check_tensor(calculated_grads_memory, expected_grads_memory, model.num_parameters, "grads");
         }
 
-        gpt2_update(&model, 1e-4f, 0.9f, 0.999f, 1e-8f, 0.01f, step+1);
+        gpt2_update(&model, 1e-4f, 0.9f, 0.999f, 1e-8f, 0.01f, step + 1);
 
         // print the timing information at the end
         printf("step %d: loss %f (took %f ms)\n", step, model.mean_loss, time_elapsed_s * 1000);
@@ -181,16 +189,16 @@ int main(int argc, char *argv[]) {
 
     // expected losses are as follows, from Python
     float expected_losses[10] = {
-        5.270007133483887,
-        4.059706687927246,
-        3.3751230239868164,
-        2.8007826805114746,
-        2.315382242202759,
-        1.8490285873413086,
-        1.3946564197540283,
-        0.9991465210914612,
-        0.6240804195404053,
-        0.37651097774505615
+            5.270007133483887,
+            4.059706687927246,
+            3.3751230239868164,
+            2.8007826805114746,
+            2.315382242202759,
+            1.8490285873413086,
+            1.3946564197540283,
+            0.9991465210914612,
+            0.6240804195404053,
+            0.37651097774505615
     };
 
     // compare

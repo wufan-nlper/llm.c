@@ -6,7 +6,7 @@
 
 template<class T>
 T ceil_div(T dividend, T divisor) {
-    return (dividend + divisor-1) / divisor;
+    return (dividend + divisor - 1) / divisor;
 }
 
 // ----------------------------------------------------------------------------
@@ -23,50 +23,50 @@ void cuda_check(cudaError_t error, const char *file, int line) {
 #define cudaCheck(err) (cuda_check(err, __FILE__, __LINE__))
 
 // cuBLAS error checking
-void cublasCheck(cublasStatus_t status, const char *file, int line)
-{
+void cublasCheck(cublasStatus_t status, const char *file, int line) {
     if (status != CUBLAS_STATUS_SUCCESS) {
         printf("[cuBLAS ERROR]: %d %s %d\n", status, file, line);
         exit(EXIT_FAILURE);
     }
 }
+
 #define cublasCheck(status) { cublasCheck((status), __FILE__, __LINE__); }
 
 // ----------------------------------------------------------------------------
 // random utils
 
-float* make_random_float_01(int N) {
-    float* arr = (float*)malloc(N * sizeof(float));
+float *make_random_float_01(int N) {
+    float *arr = (float *) malloc(N * sizeof(float));
     for (int i = 0; i < N; i++) {
-        arr[i] = ((float)rand() / RAND_MAX); // range 0..1
+        arr[i] = ((float) rand() / RAND_MAX); // range 0..1
     }
     return arr;
 }
 
-float* make_random_float(int N) {
-    float* arr = (float*)malloc(N * sizeof(float));
+float *make_random_float(int N) {
+    float *arr = (float *) malloc(N * sizeof(float));
     for (int i = 0; i < N; i++) {
-        arr[i] = ((float)rand() / RAND_MAX) * 2.0 - 1.0; // range -1..1
+        arr[i] = ((float) rand() / RAND_MAX) * 2.0 - 1.0; // range -1..1
     }
     return arr;
 }
 
-int* make_random_int(int N, int V) {
-    int* arr = (int*)malloc(N * sizeof(int));
+int *make_random_int(int N, int V) {
+    int *arr = (int *) malloc(N * sizeof(int));
     for (int i = 0; i < N; i++) {
         arr[i] = rand() % V; // range 0..V-1
     }
     return arr;
 }
 
-float* make_zeros_float(int N) {
-    float* arr = (float*)malloc(N * sizeof(float));
+float *make_zeros_float(int N) {
+    float *arr = (float *) malloc(N * sizeof(float));
     memset(arr, 0, N * sizeof(float)); // all zero
     return arr;
 }
 
-float* make_ones_float(int N) {
-    float* arr = (float*)malloc(N * sizeof(float));
+float *make_ones_float(int N) {
+    float *arr = (float *) malloc(N * sizeof(float));
     for (int i = 0; i < N; i++) {
         arr[i] = 1.0f;
     }
@@ -77,8 +77,9 @@ float* make_ones_float(int N) {
 // testing and benchmarking utils
 
 template<class T>
-void validate_result(T* device_result, const T* cpu_reference, const char* name, std::size_t num_elements, T tolerance=1e-4) {
-    T* out_gpu = (T*)malloc(num_elements * sizeof(T));
+void validate_result(T *device_result, const T *cpu_reference, const char *name, std::size_t num_elements,
+                     T tolerance = 1e-4) {
+    T *out_gpu = (T *) malloc(num_elements * sizeof(T));
     cudaCheck(cudaMemcpy(out_gpu, device_result, num_elements * sizeof(T), cudaMemcpyDeviceToHost));
     int nfaults = 0;
     for (int i = 0; i < num_elements; i++) {
@@ -89,7 +90,7 @@ void validate_result(T* device_result, const T* cpu_reference, const char* name,
         // ensure correctness for all elements
         if (fabs(cpu_reference[i] - out_gpu[i]) > tolerance) {
             printf("Mismatch of %s at %d: CPU_ref: %f vs GPU: %f\n", name, i, cpu_reference[i], out_gpu[i]);
-            nfaults ++;
+            nfaults++;
             if (nfaults >= 10) {
                 free(out_gpu);
                 exit(EXIT_FAILURE);
@@ -106,7 +107,7 @@ void validate_result(T* device_result, const T* cpu_reference, const char* name,
 }
 
 template<class Kernel, class... KernelArgs>
-float benchmark_kernel(int repeats, Kernel kernel, KernelArgs&&... kernel_args) {
+float benchmark_kernel(int repeats, Kernel kernel, KernelArgs &&... kernel_args) {
     cudaEvent_t start, stop;
     cudaCheck(cudaEventCreate(&start));
     cudaCheck(cudaEventCreate(&stop));

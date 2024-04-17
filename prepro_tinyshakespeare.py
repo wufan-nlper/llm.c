@@ -25,20 +25,22 @@ DATA_CACHE_DIR = "data"
 enc = tiktoken.get_encoding("gpt2")
 encode = lambda s: enc.encode(s, allowed_special={'<|endoftext|>'})
 
+
 def download_file(url: str, fname: str, chunk_size=1024):
     """Helper function to download a file from a given url"""
     resp = requests.get(url, stream=True)
     total = int(resp.headers.get("content-length", 0))
     with open(fname, "wb") as file, tqdm(
-        desc=fname,
-        total=total,
-        unit="iB",
-        unit_scale=True,
-        unit_divisor=1024,
+            desc=fname,
+            total=total,
+            unit="iB",
+            unit_scale=True,
+            unit_divisor=1024,
     ) as bar:
         for data in resp.iter_content(chunk_size=chunk_size):
             size = file.write(data)
             bar.update(size)
+
 
 def download():
     """Downloads the TinyShakespeare dataset to DATA_CACHE_DIR"""
@@ -53,8 +55,9 @@ def download():
     else:
         print(f"{data_filename} already exists, skipping download...")
 
+
 def tokenize():
-    eot = enc._special_tokens['<|endoftext|>'] # end of text token
+    eot = enc._special_tokens['<|endoftext|>']  # end of text token
     data_filename = os.path.join(DATA_CACHE_DIR, "tiny_shakespeare.txt")
     text = open(data_filename, 'r').read()
     # let's treat every person's statement in the dialog as a separate document
@@ -76,6 +79,7 @@ def tokenize():
     # prints
     print(f"Saved {len(val_tokens_np)} tokens to {val_filename}")
     print(f"Saved {len(train_tokens_np)} tokens to {train_filename}")
+
 
 if __name__ == "__main__":
     download()

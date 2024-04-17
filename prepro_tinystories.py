@@ -31,20 +31,22 @@ DATA_CACHE_DIR = "data"
 enc = tiktoken.get_encoding("gpt2")
 encode = lambda s: enc.encode_ordinary(s)
 
+
 def download_file(url: str, fname: str, chunk_size=1024):
     """Helper function to download a file from a given url"""
     resp = requests.get(url, stream=True)
     total = int(resp.headers.get("content-length", 0))
     with open(fname, "wb") as file, tqdm(
-        desc=fname,
-        total=total,
-        unit="iB",
-        unit_scale=True,
-        unit_divisor=1024,
+            desc=fname,
+            total=total,
+            unit="iB",
+            unit_scale=True,
+            unit_divisor=1024,
     ) as bar:
         for data in resp.iter_content(chunk_size=chunk_size):
             size = file.write(data)
             bar.update(size)
+
 
 def download():
     """Downloads the TinyStories dataset to DATA_CACHE_DIR"""
@@ -74,12 +76,13 @@ def download():
         data = json.load(f)
     print("Download done.")
     print(f"Number of shards: {len(shard_filenames)}")
-    #print(f"Example story:\n{data[0]}")
+    # print(f"Example story:\n{data[0]}")
+
 
 def process_shard(shard_index, shard_filename):
     with open(shard_filename, "r") as f:
         data = json.load(f)
-    eot = enc._special_tokens['<|endoftext|>'] # end of text token
+    eot = enc._special_tokens['<|endoftext|>']  # end of text token
     rng = random.Random(1337 + shard_index)
     rng.shuffle(data)
     all_tokens = []
@@ -90,6 +93,7 @@ def process_shard(shard_index, shard_filename):
         all_tokens.append(eot)
         all_tokens.extend(tokens)
     return all_tokens
+
 
 def tokenize():
     # shard 0 will be the val split, rest is train
@@ -112,6 +116,7 @@ def tokenize():
         with open(split_filename, "wb") as f:
             f.write(all_tokens_np.tobytes())
         print(f"Saved {len(all_tokens_np)} tokens to {split_filename}")
+
 
 if __name__ == "__main__":
     download()

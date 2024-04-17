@@ -16,16 +16,16 @@ version 1 is a straight-forward port from CPU code to kernel, parallel over B,T
 // ----------------------------------------------------------------------------
 // CPU code reference
 
-void crossentropy_forward_cpu(float* losses,
-                            const float* probs, const int* targets,
-                            int B, int T, int V) {
+void crossentropy_forward_cpu(float *losses,
+                              const float *probs, const int *targets,
+                              int B, int T, int V) {
     // output: losses is (B,T) of the individual losses at each position
     // input: probs are (B,T,V) of the probabilities
     // input: targets is (B,T) of integers giving the correct index in logits
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
             // loss = -log(probs[target])
-            const float* probs_bt = probs + b * T * V + t * V;
+            const float *probs_bt = probs + b * T * V + t * V;
             int ix = targets[b * T + t];
             losses[b * T + t] = -logf(probs_bt[ix]);
         }
@@ -35,14 +35,14 @@ void crossentropy_forward_cpu(float* losses,
 // ----------------------------------------------------------------------------
 // GPU kernels
 
-__global__ void crossentropy_forward_kernel1(float* losses,
-                            const float* probs, const int* targets,
-                            int B, int T, int V) {
+__global__ void crossentropy_forward_kernel1(float *losses,
+                                             const float *probs, const int *targets,
+                                             int B, int T, int V) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < B * T) {
         int b = i / T;
         int t = i % T;
-        const float* probs_bt = probs + b * T * V + t * V;
+        const float *probs_bt = probs + b * T * V + t * V;
         int ix = targets[b * T + t];
         losses[b * T + t] = -logf(probs_bt[ix]);
     }
@@ -51,10 +51,10 @@ __global__ void crossentropy_forward_kernel1(float* losses,
 // ----------------------------------------------------------------------------
 // kernel launcher
 
-void crossentropy_forward1(float* losses,
-                            const float* probs, const int* targets,
-                            int B, int T, int V,
-                            const int block_size) {
+void crossentropy_forward1(float *losses,
+                           const float *probs, const int *targets,
+                           int B, int T, int V,
+                           const int block_size) {
     const int N = B * T;
     const int grid_size = ceil_div(N, block_size);
     crossentropy_forward_kernel1<<<grid_size, block_size>>>(losses, probs, targets, B, T, V);
@@ -63,8 +63,8 @@ void crossentropy_forward1(float* losses,
 
 // kernel version dispatch
 void crossentropy_forward(int kernel_num,
-                          float* losses,
-                          const float* probs, const int* targets,
+                          float *losses,
+                          const float *probs, const int *targets,
                           int B, int T, int V,
                           const int block_size) {
     switch (kernel_num) {
@@ -90,14 +90,14 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // create host memory of random numbers
-    float* out = (float*)malloc(B * T * sizeof(float));
-    float* probs = make_random_float_01(B * T * V);
-    int* targets = make_random_int(B * T, V);
+    float *out = (float *) malloc(B * T * sizeof(float));
+    float *probs = make_random_float_01(B * T * V);
+    int *targets = make_random_int(B * T, V);
 
     // move to GPU
-    float* d_out;
-    float* d_probs;
-    int* d_targets;
+    float *d_out;
+    float *d_probs;
+    int *d_targets;
     cudaCheck(cudaMalloc(&d_out, B * T * sizeof(float)));
     cudaCheck(cudaMalloc(&d_probs, B * T * V * sizeof(float)));
     cudaCheck(cudaMalloc(&d_targets, B * T * sizeof(int)));
@@ -133,7 +133,8 @@ int main(int argc, char **argv) {
                                               kernel_num, d_out, d_probs, d_targets,
                                               B, T, V, block_size);
 
-        printf("block_size %4d | time %.4f ms | per token %.2f ns\n", block_size, elapsed_time, elapsed_time * 1'000'000 / (B*T));
+        printf("block_size %4d | time %.4f ms | per token %.2f ns\n", block_size, elapsed_time,
+               elapsed_time * 1'000'000 / (B * T));
     }
 
     // free memory

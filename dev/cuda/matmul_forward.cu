@@ -30,26 +30,26 @@ OMP_NUM_THREADS=32 ./matmul_forward 3
 static cublasHandle_t cublas_handle;
 static cublasLtHandle_t cublaslt_handle;
 static size_t cublaslt_workspace_size = 32 * 1024 * 1024;
-static void* cublaslt_workspace = NULL;
+static void *cublaslt_workspace = NULL;
 static cublasComputeType_t cublas_compute_type;
 
 // ----------------------------------------------------------------------------
 // CPU code reference
 
-void matmul_forward_cpu(float* out,
-                    const float* inp, const float* weight, const float* bias,
-                    int B, int T, int C, int OC) {
+void matmul_forward_cpu(float *out,
+                        const float *inp, const float *weight, const float *bias,
+                        int B, int T, int C, int OC) {
     // OC is short for "output channels"
     // inp is (B,T,C), weight is (OC, C), bias is (OC)
     // out will be (B,T,OC)
-    #pragma omp parallel for collapse(2)
+#pragma omp parallel for collapse(2)
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
-            float* out_bt = out + b * T * OC + t * OC;
-            const float* inp_bt = inp + b * T * C + t * C;
+            float *out_bt = out + b * T * OC + t * OC;
+            const float *inp_bt = inp + b * T * C + t * C;
             for (int o = 0; o < OC; o++) {
                 float val = (bias != NULL) ? bias[o] : 0.0f;
-                const float* wrow = weight + o*C;
+                const float *wrow = weight + o * C;
                 for (int i = 0; i < C; i++) {
                     val += inp_bt[i] * wrow[i];
                 }
@@ -63,8 +63,8 @@ void matmul_forward_cpu(float* out,
 // GPU kernels
 
 // kernel 1: naive kernel, every thread handles one output element, direct global memory access
-__global__ void matmul_forward_kernel1(float* out,
-                                       const float* inp, const float* weight, const float* bias,
+__global__ void matmul_forward_kernel1(float *out,
+                                       const float *inp, const float *weight, const float *bias,
                                        int BT, int C, int OC) {
     // out is (B,T,OC). OC is short for "output channels", e.g. OC = 4 * C
     // inp is (B,T,C), weight is (OC, C), bias is (OC)
@@ -75,8 +75,8 @@ __global__ void matmul_forward_kernel1(float* out,
         int b = bt / BT;
         int t = bt % BT;
         float val = (bias != NULL) ? bias[oc] : 0.0f;
-        const float* wrow = weight + oc*C;
-        const float* inp_bt = inp + b * BT * C + t * C;
+        const float *wrow = weight + oc * C;
+        const float *inp_bt = inp + b * BT * C + t * C;
         for (int i = 0; i < C; i++) {
             val += inp_bt[i] * wrow[i];
         }
@@ -87,7 +87,7 @@ __global__ void matmul_forward_kernel1(float* out,
 // is there no better way other than just adding bias with a whole separate kernel?
 // this is a highly memory-bound operation, should be fused into the matmul kernel
 // but i can't seem to find a cuBLAS function that does this
-__global__ void add_bias(float* out, const float* bias, int B, int T, int OC) {
+__global__ void add_bias(float *out, const float *bias, int B, int T, int OC) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int i = idx; i < B * T * OC; i += stride) {
@@ -100,21 +100,21 @@ __global__ void add_bias(float* out, const float* bias, int B, int T, int OC) {
 // kernel launcher
 
 // kernel 1 is the most naive matmul kernel
-void matmul_forward1(float* out,
-                     const float* inp, const float* weight, const float* bias,
+void matmul_forward1(float *out,
+                     const float *inp, const float *weight, const float *bias,
                      int B, int T, int C, int OC,
                      const int sqrt_block_size) {
     // out is (B,T,OC). OC is short for "output channels", e.g. OC = 4 * C
     // inp is (B,T,C), weight is (OC, C), bias is (OC)
     dim3 gridDim(ceil_div(B * T, sqrt_block_size), ceil_div(OC, sqrt_block_size));
     dim3 blockDim(sqrt_block_size, sqrt_block_size);
-    matmul_forward_kernel1<<<gridDim, blockDim>>>(out, inp, weight, bias, B*T, C, OC);
+    matmul_forward_kernel1<<<gridDim, blockDim>>>(out, inp, weight, bias, B * T, C, OC);
     cudaCheck(cudaGetLastError());
 }
 
 // kernel 2 calls cuBLAS, which should be very efficient
-void matmul_forward2(float* out,
-                     const float* inp, const float* weight, const float* bias,
+void matmul_forward2(float *out,
+                     const float *inp, const float *weight, const float *bias,
                      int B, int T, int C, int OC,
                      const int sqrt_block_size) {
     // for reference API is:
@@ -141,7 +141,9 @@ void matmul_forward2(float* out,
 
     const float alpha = 1.0f;
     const float beta = 0.0f;
-    cublasCheck(cublasSgemm(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, OC, B*T, C, &alpha, weight, C, inp, C, &beta, out, OC));
+    cublasCheck(
+            cublasSgemm(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, OC, B * T, C, &alpha, weight, C, inp, C, &beta, out,
+                        OC));
     // and now we still have to add the bias... (ew)
     if (bias != NULL) {
         int block_size = sqrt_block_size * sqrt_block_size;
@@ -154,14 +156,14 @@ void matmul_forward2(float* out,
 // uses cublasLt to fuse the bias and gelu
 // https://docs.nvidia.com/cuda/cublas/#cublasltmatmul
 // https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuBLASLt/LtSgemm/sample_cublasLt_LtSgemm.cu
-void matmul_forward3(float* out,
-                     const float* inp, const float* weight, const float* bias,
+void matmul_forward3(float *out,
+                     const float *inp, const float *weight, const float *bias,
                      int B, int T, int C, int OC) {
     int has_bias = (bias != NULL);
     int has_gelu = 0;
 
     // check bias alignment
-    if(((uintptr_t)bias % 16) != 0) {
+    if (((uintptr_t) bias % 16) != 0) {
         printf("Bias pointer is not aligned (cuBLASLt requirement)!\n");
         exit(EXIT_FAILURE);
     }
@@ -187,39 +189,42 @@ void matmul_forward3(float* out,
         epilogueBias = CUBLASLT_EPILOGUE_GELU;
     }
     cublasCheck(cublasLtMatmulDescCreate(&operationDesc, cublas_compute_type, CUDA_R_32F));
-    cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSA, &opTranspose, sizeof(opTranspose)));
-    cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSB, &opNoTranspose, sizeof(opNoTranspose)));
-    cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogueBias, sizeof(epilogueBias)));
+    cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSA, &opTranspose,
+                                               sizeof(opTranspose)));
+    cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_TRANSB, &opNoTranspose,
+                                               sizeof(opNoTranspose)));
+    cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogueBias,
+                                               sizeof(epilogueBias)));
     cublasCheck(cublasLtMatmulDescSetAttribute(operationDesc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias, sizeof(bias)));
 
     // define matrix layouts
     cublasCheck(cublasLtMatrixLayoutCreate(&weightLayout, CUDA_R_32F, C, OC, C));
-    cublasCheck(cublasLtMatrixLayoutCreate(&inputLayout, CUDA_R_32F, C, B*T, C));
-    cublasCheck(cublasLtMatrixLayoutCreate(&outputLayout, CUDA_R_32F, OC, B*T, OC));
+    cublasCheck(cublasLtMatrixLayoutCreate(&inputLayout, CUDA_R_32F, C, B * T, C));
+    cublasCheck(cublasLtMatrixLayoutCreate(&outputLayout, CUDA_R_32F, OC, B * T, OC));
     cublasCheck(cublasLtMatrixLayoutCreate(&biasLayout, CUDA_R_32F, OC, 1, OC));
 
     // create a preference handle with specified max workspace
     cublasCheck(cublasLtMatmulPreferenceCreate(&preference));
     cublasCheck(cublasLtMatmulPreferenceSetAttribute(preference,
-        CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
-        &cublaslt_workspace_size, sizeof(cublaslt_workspace_size)));
+                                                     CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+                                                     &cublaslt_workspace_size, sizeof(cublaslt_workspace_size)));
 
     // find a suitable algorithm
     cublasCheck(cublasLtMatmulAlgoGetHeuristic(cublaslt_handle, operationDesc,
-        weightLayout, inputLayout, outputLayout, outputLayout,
-        preference, 1, &heuristic, &returnedResults));
+                                               weightLayout, inputLayout, outputLayout, outputLayout,
+                                               preference, 1, &heuristic, &returnedResults));
     if (returnedResults == 0) {
         printf("No cuBLASLt algorithm: B: %d, T: %d, C: %d, OC: %d, bias: %d, gelu: %d\n",
-            B, T, C, OC, has_bias, has_gelu);
+               B, T, C, OC, has_bias, has_gelu);
         exit(EXIT_FAILURE);
     }
 
     // call the matmul
     const float alpha = 1.0f, beta = 0.0f;
     cublasCheck(cublasLtMatmul(cublaslt_handle, operationDesc,
-        &alpha, weight, weightLayout, inp, inputLayout, &beta,
-        out, outputLayout, out, outputLayout, &heuristic.algo,
-        cublaslt_workspace, cublaslt_workspace_size, 0));
+                               &alpha, weight, weightLayout, inp, inputLayout, &beta,
+                               out, outputLayout, out, outputLayout, &heuristic.algo,
+                               cublaslt_workspace, cublaslt_workspace_size, 0));
 
     // cleanups
     cublasCheck(cublasLtMatmulPreferenceDestroy(preference));
@@ -232,8 +237,8 @@ void matmul_forward3(float* out,
 
 // kernel version dispatch
 void matmul_forward(int kernel_num,
-                    float* out,
-                    const float* inp, const float* weight, const float* bias,
+                    float *out,
+                    const float *inp, const float *weight, const float *bias,
                     int B, int T, int C, int OC,
                     const int sqrt_block_size) {
     switch (kernel_num) {
@@ -282,16 +287,16 @@ int main(int argc, char **argv) {
     cudaCheck(cudaMalloc(&cublaslt_workspace, cublaslt_workspace_size));
 
     // create host memory of random numbers
-    float* out = (float*)malloc(B * T * OC * sizeof(float));
-    float* inp = make_random_float(B * T * C);
-    float* weight = make_random_float(OC * C);
-    float* bias = make_random_float(OC);
+    float *out = (float *) malloc(B * T * OC * sizeof(float));
+    float *inp = make_random_float(B * T * C);
+    float *weight = make_random_float(OC * C);
+    float *bias = make_random_float(OC);
 
     // move to GPU
-    float* d_out;
-    float* d_inp;
-    float* d_weight;
-    float* d_bias;
+    float *d_out;
+    float *d_inp;
+    float *d_weight;
+    float *d_bias;
     cudaCheck(cudaMalloc(&d_out, B * T * OC * sizeof(float)));
     cudaCheck(cudaMalloc(&d_inp, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_weight, C * OC * sizeof(float)));
@@ -332,7 +337,7 @@ int main(int argc, char **argv) {
 
         // napkin math: estimate the flops achieved
         // e.g. A100 40GB PCIe is advertised at 19.5 TFLOPS fp32
-        float tflops = (float)B * T * C * OC * 2 / elapsed_time * 1e3f / 1e12f;
+        float tflops = (float) B * T * C * OC * 2 / elapsed_time * 1e3f / 1e12f;
         printf("sqrt_block_size %4d | time %.4f ms | tflops %.2f\n", sqrt_block_size, elapsed_time, tflops);
     }
 

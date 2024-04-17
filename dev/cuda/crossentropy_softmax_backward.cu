@@ -16,14 +16,14 @@ version 1 is a straight-forward port from CPU code to kernel, parallel over B,T
 // ----------------------------------------------------------------------------
 // CPU code reference
 
-void crossentropy_softmax_backward_cpu(float* dlogits,
-                           const float* dlosses, const float* probs, const int* targets,
-                           int B, int T, int V) {
+void crossentropy_softmax_backward_cpu(float *dlogits,
+                                       const float *dlosses, const float *probs, const int *targets,
+                                       int B, int T, int V) {
     // backwards through both softmax and crossentropy
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
-            float* dlogits_bt = dlogits + b * T * V + t * V;
-            const float* probs_bt = probs + b * T * V + t * V;
+            float *dlogits_bt = dlogits + b * T * V + t * V;
+            const float *probs_bt = probs + b * T * V + t * V;
             float dloss = dlosses[b * T + t];
             int ix = targets[b * T + t];
             for (int i = 0; i < V; i++) {
@@ -39,16 +39,16 @@ void crossentropy_softmax_backward_cpu(float* dlogits,
 // GPU kernels
 
 // naive kernel that just parallelizes over B,T,V
-__global__ void crossentropy_softmax_backward_kernel1(float* dlogits,
-                           const float* dlosses, const float* probs, const int* targets,
-                           int B, int T, int V) {
+__global__ void crossentropy_softmax_backward_kernel1(float *dlogits,
+                                                      const float *dlosses, const float *probs, const int *targets,
+                                                      int B, int T, int V) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < B * T * V) {
         int b = i / (T * V);
         int t = (i / V) % T;
         int v = i % V;
-        float* dlogits_bt = dlogits + b * T * V + t * V;
-        const float* probs_bt = probs + b * T * V + t * V;
+        float *dlogits_bt = dlogits + b * T * V + t * V;
+        const float *probs_bt = probs + b * T * V + t * V;
         float dloss = dlosses[b * T + t];
         int ix = targets[b * T + t];
         float p = probs_bt[v];
@@ -60,10 +60,10 @@ __global__ void crossentropy_softmax_backward_kernel1(float* dlogits,
 // ----------------------------------------------------------------------------
 // kernel launcher
 
-void crossentropy_softmax_backward1(float* dlogits,
-                           const float* dlosses, const float* probs, const int* targets,
-                           int B, int T, int V,
-                           const int block_size) {
+void crossentropy_softmax_backward1(float *dlogits,
+                                    const float *dlosses, const float *probs, const int *targets,
+                                    int B, int T, int V,
+                                    const int block_size) {
     const int N = B * T * V;
     const int grid_size = ceil_div(N, block_size);
     crossentropy_softmax_backward_kernel1<<<grid_size, block_size>>>(dlogits, dlosses, probs, targets, B, T, V);
@@ -72,10 +72,10 @@ void crossentropy_softmax_backward1(float* dlogits,
 
 // kernel version dispatch
 void crossentropy_softmax_backward(int kernel_num,
-                           float* dlogits,
-                           const float* dlosses, const float* probs, const int* targets,
-                           int B, int T, int V,
-                           const int block_size) {
+                                   float *dlogits,
+                                   const float *dlosses, const float *probs, const int *targets,
+                                   int B, int T, int V,
+                                   const int block_size) {
     switch (kernel_num) {
         case 1:
             crossentropy_softmax_backward1(dlogits, dlosses, probs, targets, B, T, V, block_size);
@@ -99,16 +99,16 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // create host memory of random numbers
-    float* probs = make_random_float(B * T * V);
-    int* targets = make_random_int(B * T, V);
-    float* dlosses = make_random_float(B * T);
-    float* dlogits = make_zeros_float(B * T * V);
+    float *probs = make_random_float(B * T * V);
+    int *targets = make_random_int(B * T, V);
+    float *dlosses = make_random_float(B * T);
+    float *dlogits = make_zeros_float(B * T * V);
 
     // move to GPU
-    float* d_probs;
-    int* d_targets;
-    float* d_dlosses;
-    float* d_dlogits;
+    float *d_probs;
+    int *d_targets;
+    float *d_dlosses;
+    float *d_dlogits;
     cudaCheck(cudaMalloc(&d_probs, B * T * V * sizeof(float)));
     cudaCheck(cudaMalloc(&d_targets, B * T * sizeof(int)));
     cudaCheck(cudaMalloc(&d_dlosses, B * T * sizeof(float)));
@@ -147,7 +147,8 @@ int main(int argc, char **argv) {
                                               kernel_num, d_dlogits, d_dlosses, d_probs, d_targets,
                                               B, T, V, block_size);
 
-        printf("block_size %4d | time %.4f ms | per token %.2f µs\n", block_size, elapsed_time, elapsed_time * 1'000 / (B*T));
+        printf("block_size %4d | time %.4f ms | per token %.2f µs\n", block_size, elapsed_time,
+               elapsed_time * 1'000 / (B * T));
     }
 
     // free memory

@@ -19,9 +19,9 @@ version 1 is naive port from CPU code to kernel: parallelizes over B,T, loops ov
 // ----------------------------------------------------------------------------
 // CPU code reference
 
-void layernorm_forward_cpu(float* out, float* mean, float* rstd,
-                       float* inp, float* weight, float* bias,
-                       int B, int T, int C) {
+void layernorm_forward_cpu(float *out, float *mean, float *rstd,
+                           float *inp, float *weight, float *bias,
+                           int B, int T, int C) {
     // reference: https://pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html
     // both inp and out are (B,T,C) of the activations
     // mean and rstd are (B,T) buffers, to be used later in backward pass
@@ -31,24 +31,24 @@ void layernorm_forward_cpu(float* out, float* mean, float* rstd,
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
             // seek to the input position inp[b,t,:]
-            float* x = inp + b * T * C + t * C;
+            float *x = inp + b * T * C + t * C;
             // calculate the mean
             float m = 0.0f;
             for (int i = 0; i < C; i++) {
                 m += x[i];
             }
-            m = m/C;
+            m = m / C;
             // calculate the variance (without any bias correction)
             float v = 0.0f;
             for (int i = 0; i < C; i++) {
                 float xshift = x[i] - m;
                 v += xshift * xshift;
             }
-            v = v/C;
+            v = v / C;
             // calculate the rstd (reciprocal standard deviation)
             float s = 1.0f / sqrtf(v + eps);
             // seek to the output position in out[b,t,:]
-            float* out_bt = out + b * T * C + t * C;
+            float *out_bt = out + b * T * C + t * C;
             for (int i = 0; i < C; i++) {
                 float n = (s * (x[i] - m)); // normalize
                 float o = n * weight[i] + bias[i]; // scale and shift
@@ -61,14 +61,14 @@ void layernorm_forward_cpu(float* out, float* mean, float* rstd,
     }
 }
 
-void layernorm_backward_cpu(float* dinp, float* dweight, float* dbias,
-                        float* dout, float* inp, float* weight, float* mean, float* rstd,
-                        int B, int T, int C) {
+void layernorm_backward_cpu(float *dinp, float *dweight, float *dbias,
+                            float *dout, float *inp, float *weight, float *mean, float *rstd,
+                            int B, int T, int C) {
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
-            float* dout_bt = dout + b * T * C + t * C;
-            float* inp_bt = inp + b * T * C + t * C;
-            float* dinp_bt = dinp + b * T * C + t * C;
+            float *dout_bt = dout + b * T * C + t * C;
+            float *inp_bt = inp + b * T * C + t * C;
+            float *dinp_bt = dinp + b * T * C + t * C;
             float mean_bt = mean[b * T + t];
             float rstd_bt = rstd[b * T + t];
 
@@ -108,17 +108,17 @@ void layernorm_backward_cpu(float* dinp, float* dweight, float* dbias,
 // GPU kernels
 
 // super naive kernel that just parallelizes over B,T and loops over C
-__global__ void layernorm_backward_kernel1(float* dinp, float* dweight, float* dbias,
-                        float* dout, float* inp, float* weight, float* mean, float* rstd,
-                        int B, int T, int C) {
+__global__ void layernorm_backward_kernel1(float *dinp, float *dweight, float *dbias,
+                                           float *dout, float *inp, float *weight, float *mean, float *rstd,
+                                           int B, int T, int C) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= B*T) return;
+    if (idx >= B * T) return;
     int b = idx / T;
     int t = idx % T;
 
-    float* dout_bt = dout + b * T * C + t * C;
-    float* inp_bt = inp + b * T * C + t * C;
-    float* dinp_bt = dinp + b * T * C + t * C;
+    float *dout_bt = dout + b * T * C + t * C;
+    float *inp_bt = inp + b * T * C + t * C;
+    float *dinp_bt = dinp + b * T * C + t * C;
     float mean_bt = mean[b * T + t];
     float rstd_bt = rstd[b * T + t];
 
@@ -155,9 +155,9 @@ __global__ void layernorm_backward_kernel1(float* dinp, float* dweight, float* d
 // ----------------------------------------------------------------------------
 // kernel launchers
 
-void layernorm_backward1(float* dinp, float* dweight, float* dbias,
-                        float* dout, float* inp, float* weight, float* mean, float* rstd,
-                        int B, int T, int C, const int block_size) {
+void layernorm_backward1(float *dinp, float *dweight, float *dbias,
+                         float *dout, float *inp, float *weight, float *mean, float *rstd,
+                         int B, int T, int C, const int block_size) {
     const int N = B * T;
     const int grid_size = ceil_div(N, block_size);
     layernorm_backward_kernel1<<<grid_size, block_size>>>(dinp, dweight, dbias, dout, inp, weight, mean, rstd, B, T, C);
@@ -165,15 +165,15 @@ void layernorm_backward1(float* dinp, float* dweight, float* dbias,
 
 // kernel version dispatch
 void layernorm_backward(int kernel_num,
-                        float* dinp, float* dweight, float* dbias,
-                        float* dout, float* inp, float* weight, float* mean, float* rstd,
+                        float *dinp, float *dweight, float *dbias,
+                        float *dout, float *inp, float *weight, float *mean, float *rstd,
                         int B, int T, int C,
                         const int block_size) {
     switch (kernel_num) {
         case 1:
             layernorm_backward1(dinp, dweight, dbias, dout, inp, weight, mean, rstd, B, T, C, block_size);
             break;
-    default:
+        default:
             printf("Invalid kernel number\n");
             exit(1);
     }
@@ -192,12 +192,12 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // first do the forward pass in CPU
-    float* out = (float*)malloc(B * T * C * sizeof(float));
-    float* mean = (float*)malloc(B * T * sizeof(float));
-    float* rstd = (float*)malloc(B * T * sizeof(float));
-    float* inp = make_random_float(B * T * C);
-    float* weight = make_random_float(C);
-    float* bias = make_random_float(C);
+    float *out = (float *) malloc(B * T * C * sizeof(float));
+    float *mean = (float *) malloc(B * T * sizeof(float));
+    float *rstd = (float *) malloc(B * T * sizeof(float));
+    float *inp = make_random_float(B * T * C);
+    float *weight = make_random_float(C);
+    float *bias = make_random_float(C);
     layernorm_forward_cpu(out, mean, rstd, inp, weight, bias, B, T, C);
 
     // now do the backward pass, again on CPU
@@ -218,14 +218,14 @@ int main(int argc, char **argv) {
     printf("Using kernel %d\n", kernel_num);
 
     // move all the variables we need for backward pass onto the GPU
-    float* d_dinp;
-    float* d_dweight;
-    float* d_dbias;
-    float* d_dout;
-    float* d_inp;
-    float* d_weight;
-    float* d_mean;
-    float* d_rstd;
+    float *d_dinp;
+    float *d_dweight;
+    float *d_dbias;
+    float *d_dout;
+    float *d_inp;
+    float *d_weight;
+    float *d_mean;
+    float *d_rstd;
     cudaCheck(cudaMalloc(&d_dinp, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_dweight, C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_dbias, C * sizeof(float)));
@@ -247,7 +247,8 @@ int main(int argc, char **argv) {
 
     // launch the kernel
     const int block_size = 256;
-    layernorm_backward(kernel_num, d_dinp, d_dweight, d_dbias, d_dout, d_inp, d_weight, d_mean, d_rstd, B, T, C, block_size);
+    layernorm_backward(kernel_num, d_dinp, d_dweight, d_dbias, d_dout, d_inp, d_weight, d_mean, d_rstd, B, T, C,
+                       block_size);
 
     // check the correctness of the kernel
     printf("Checking correctness...\n");

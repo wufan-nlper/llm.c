@@ -20,15 +20,15 @@ version 2 is more optimized, parallelizes over all of B,T,C
 // CPU code reference
 
 // GPT-2 positional encoder forward pass
-void encoder_forward_cpu(float* out,
-                   const int* inp, const float* wte, const float* wpe,
-                   int B, int T, int C) {
+void encoder_forward_cpu(float *out,
+                         const int *inp, const float *wte, const float *wpe,
+                         int B, int T, int C) {
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
-            float* out_bt = out + b * T * C + t * C;
+            float *out_bt = out + b * T * C + t * C;
             int ix = inp[b * T + t];
-            const float* wte_ix = wte + ix * C;
-            const float* wpe_t = wpe + t * C;
+            const float *wte_ix = wte + ix * C;
+            const float *wpe_t = wpe + t * C;
             for (int i = 0; i < C; i++) {
                 out_bt[i] = wte_ix[i] + wpe_t[i];
             }
@@ -40,19 +40,19 @@ void encoder_forward_cpu(float* out,
 // GPU kernels
 
 // naive implementation into kernel, parallelize over B,T, loop over C
-__global__ void encoder_forward_kernel1(float* out,
-                               const int* inp, const float* wte, const float* wpe,
-                               int B, int T, int C) {
+__global__ void encoder_forward_kernel1(float *out,
+                                        const int *inp, const float *wte, const float *wpe,
+                                        int B, int T, int C) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int N = B * T;
 
     if (idx < N) {
         int b = idx / T;
         int t = idx % T;
-        float* out_bt = out + b * T * C + t * C;
+        float *out_bt = out + b * T * C + t * C;
         int ix = inp[b * T + t];
-        const float* wte_ix = wte + ix * C;
-        const float* wpe_t = wpe + t * C;
+        const float *wte_ix = wte + ix * C;
+        const float *wpe_t = wpe + t * C;
         for (int i = 0; i < C; i++) {
             out_bt[i] = wte_ix[i] + wpe_t[i];
         }
@@ -60,9 +60,9 @@ __global__ void encoder_forward_kernel1(float* out,
 }
 
 // optimized implementation: parallelize over all of B,T,C
-__global__ void encoder_forward_kernel2(float* out,
-                               const int* inp, const float* wte, const float* wpe,
-                               int B, int T, int C) {
+__global__ void encoder_forward_kernel2(float *out,
+                                        const int *inp, const float *wte, const float *wpe,
+                                        int B, int T, int C) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int N = B * T * C;
 
@@ -74,9 +74,9 @@ __global__ void encoder_forward_kernel2(float* out,
 
         int ix = inp[b * T + t];
 
-        float* out_btc = out + b * T * C + t * C + c;
-        const float* wte_ix = wte + ix * C + c;
-        const float* wpe_tc = wpe + t * C + c;
+        float *out_btc = out + b * T * C + t * C + c;
+        const float *wte_ix = wte + ix * C + c;
+        const float *wpe_tc = wpe + t * C + c;
         *out_btc = *wte_ix + *wpe_tc;
     }
 }
@@ -84,20 +84,20 @@ __global__ void encoder_forward_kernel2(float* out,
 // ----------------------------------------------------------------------------
 // kernel launcher
 
-void encoder_forward1(float* out,
-                     const int* inp, const float* wte, const float* wpe,
-                     int B, int T, int C,
-                     const int block_size) {
+void encoder_forward1(float *out,
+                      const int *inp, const float *wte, const float *wpe,
+                      int B, int T, int C,
+                      const int block_size) {
     const int N = B * T;
     const int grid_size = ceil_div(N, block_size);
     encoder_forward_kernel1<<<grid_size, block_size>>>(out, inp, wte, wpe, B, T, C);
     cudaCheck(cudaGetLastError());
 }
 
-void encoder_forward2(float* out,
-                     const int* inp, const float* wte, const float* wpe,
-                     int B, int T, int C,
-                     const int block_size) {
+void encoder_forward2(float *out,
+                      const int *inp, const float *wte, const float *wpe,
+                      int B, int T, int C,
+                      const int block_size) {
     const int N = B * T * C;
     const int grid_size = ceil_div(N, block_size);
     encoder_forward_kernel2<<<grid_size, block_size>>>(out, inp, wte, wpe, B, T, C);
@@ -106,8 +106,8 @@ void encoder_forward2(float* out,
 
 // kernel version dispatch
 void encoder_forward(int kernel_num,
-                     float* out,
-                     const int* inp, const float* wte, const float* wpe,
+                     float *out,
+                     const int *inp, const float *wte, const float *wpe,
                      int B, int T, int C,
                      const int block_size) {
     switch (kernel_num) {
@@ -137,16 +137,16 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // create host memory of random numbers
-    float* out = (float*)malloc(B * T * C * sizeof(float));
-    int* inp = make_random_int(B * T, V);
-    float* wte = make_random_float(V * C);
-    float* wpe = make_random_float(T * C);
+    float *out = (float *) malloc(B * T * C * sizeof(float));
+    int *inp = make_random_int(B * T, V);
+    float *wte = make_random_float(V * C);
+    float *wpe = make_random_float(T * C);
 
     // move to GPU
-    float* d_out;
-    int* d_inp;
-    float* d_wte;
-    float* d_wpe;
+    float *d_out;
+    int *d_inp;
+    float *d_wte;
+    float *d_wpe;
     cudaCheck(cudaMalloc(&d_out, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_inp, B * T * sizeof(int)));
     cudaCheck(cudaMalloc(&d_wte, V * C * sizeof(float)));
@@ -184,7 +184,7 @@ int main(int argc, char **argv) {
         int repeat_times = 1000;
         float elapsed_time = benchmark_kernel(repeat_times, encoder_forward,
                                               kernel_num, d_out, d_inp, d_wte, d_wpe, B, T, C, block_size
-                                              );
+        );
 
         // napkin math: estimate the memory bandwidth achieved
         // for each (B,T,C) output element, we do 3 reads and 1 write, 4 bytes each

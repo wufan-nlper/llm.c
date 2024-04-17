@@ -23,7 +23,7 @@ version 1 is naive port from CPU code to kernel
 
 #define GELU_SCALING_FACTOR sqrtf(2.0f / M_PI)
 
-void gelu_forward_cpu(float* out, const float* inp, int N) {
+void gelu_forward_cpu(float *out, const float *inp, int N) {
     for (int i = 0; i < N; i++) {
         float x = inp[i];
         float cube = 0.044715f * x * x * x;
@@ -35,7 +35,7 @@ void gelu_forward_cpu(float* out, const float* inp, int N) {
 // GPU kernels
 
 // elementwise ops are nice and ez
-__global__ void gelu_kernel(float* out, const float* inp, int N) {
+__global__ void gelu_kernel(float *out, const float *inp, int N) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < N) {
         float xi = inp[i];
@@ -47,7 +47,7 @@ __global__ void gelu_kernel(float* out, const float* inp, int N) {
 // ----------------------------------------------------------------------------
 // kernel launcher
 
-void gelu_forward1(float* out, const float* inp, int N, const int block_size) {
+void gelu_forward1(float *out, const float *inp, int N, const int block_size) {
     const int grid_size = ceil_div(N, block_size);
     gelu_kernel<<<grid_size, block_size>>>(out, inp, N);
     cudaCheck(cudaGetLastError());
@@ -55,8 +55,8 @@ void gelu_forward1(float* out, const float* inp, int N, const int block_size) {
 
 // kernel version dispatch
 void gelu_forward(int kernel_num,
-                  float* out,
-                  const float* inp,
+                  float *out,
+                  const float *inp,
                   int B, int T, int C,
                   int block_size) {
     switch (kernel_num) {
@@ -82,12 +82,12 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // create host memory of random numbers
-    float* out = (float*)malloc(B * T * C * sizeof(float));
-    float* inp = make_random_float(B * T * C);
+    float *out = (float *) malloc(B * T * C * sizeof(float));
+    float *inp = make_random_float(B * T * C);
 
     // move to GPU
-    float* d_out;
-    float* d_inp;
+    float *d_out;
+    float *d_inp;
     cudaCheck(cudaMalloc(&d_out, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_inp, B * T * C * sizeof(float)));
     cudaCheck(cudaMemcpy(d_inp, inp, B * T * C * sizeof(float), cudaMemcpyHostToDevice));

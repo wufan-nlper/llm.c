@@ -16,7 +16,7 @@ version 1 is naive port from CPU code to kernel
 // ----------------------------------------------------------------------------
 // CPU code reference lol
 
-void residual_forward_cpu(float* out, const float* inp1, const float* inp2, int N) {
+void residual_forward_cpu(float *out, const float *inp1, const float *inp2, int N) {
     for (int i = 0; i < N; i++) {
         out[i] = inp1[i] + inp2[i];
     }
@@ -26,7 +26,7 @@ void residual_forward_cpu(float* out, const float* inp1, const float* inp2, int 
 // GPU kernels
 
 // elementwise ops are nice and ez
-__global__ void residual_forward_kernel(float* out, const float* inp1, const float* inp2, int N) {
+__global__ void residual_forward_kernel(float *out, const float *inp1, const float *inp2, int N) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < N) {
         out[idx] = inp1[idx] + inp2[idx];
@@ -36,7 +36,7 @@ __global__ void residual_forward_kernel(float* out, const float* inp1, const flo
 // ----------------------------------------------------------------------------
 // kernel launcher
 
-void residual_forward1(float* out, const float* inp1, const float* inp2, int N, const int block_size) {
+void residual_forward1(float *out, const float *inp1, const float *inp2, int N, const int block_size) {
     const int grid_size = ceil_div(N, block_size);
     residual_forward_kernel<<<grid_size, block_size>>>(out, inp1, inp2, N);
     cudaCheck(cudaGetLastError());
@@ -44,11 +44,11 @@ void residual_forward1(float* out, const float* inp1, const float* inp2, int N, 
 
 // kernel version dispatch
 void residual_forward(int kernel_num,
-                  float* out,
-                  const float* inp1,
-                  const float* inp2,
-                  int N,
-                  int block_size) {
+                      float *out,
+                      const float *inp1,
+                      const float *inp2,
+                      int N,
+                      int block_size) {
     switch (kernel_num) {
         case 1:
             residual_forward1(out, inp1, inp2, N, block_size);
@@ -72,14 +72,14 @@ int main(int argc, char **argv) {
     cudaCheck(cudaSetDevice(deviceIdx));
 
     // create host memory of random numbers
-    float* out = (float*)malloc(B * T * C * sizeof(float));
-    float* inp1 = make_random_float(B * T * C);
-    float* inp2 = make_random_float(B * T * C);
+    float *out = (float *) malloc(B * T * C * sizeof(float));
+    float *inp1 = make_random_float(B * T * C);
+    float *inp2 = make_random_float(B * T * C);
 
     // move to GPU
-    float* d_out;
-    float* d_inp1;
-    float* d_inp2;
+    float *d_out;
+    float *d_inp1;
+    float *d_inp2;
     cudaCheck(cudaMalloc(&d_out, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_inp1, B * T * C * sizeof(float)));
     cudaCheck(cudaMalloc(&d_inp2, B * T * C * sizeof(float)));
@@ -115,7 +115,7 @@ int main(int argc, char **argv) {
         int repeat_times = 1000;
         float elapsed_time = benchmark_kernel(repeat_times, residual_forward,
                                               kernel_num, d_out, d_inp1, d_inp2, B * T * C, block_size
-                                              );
+        );
 
         // napkin math: estimate the memory bandwidth achieved
         // for each (B,T,C) output element, we do 2 read and 1 write, 4 bytes each

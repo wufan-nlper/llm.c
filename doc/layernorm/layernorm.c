@@ -6,31 +6,31 @@
 #include <stdlib.h>
 #include <math.h>
 
-void layernorm_forward(float* out, float* mean, float* rstd,
-                       float* inp, float* weight, float* bias,
+void layernorm_forward(float *out, float *mean, float *rstd,
+                       float *inp, float *weight, float *bias,
                        int B, int T, int C) {
     float eps = 1e-5f;
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
             // seek to the input position inp[b,t,:]
-            float* x = inp + b * T * C + t * C;
+            float *x = inp + b * T * C + t * C;
             // calculate the mean
             float m = 0.0f;
             for (int i = 0; i < C; i++) {
                 m += x[i];
             }
-            m = m/C;
+            m = m / C;
             // calculate the variance (without any bias correction)
             float v = 0.0f;
             for (int i = 0; i < C; i++) {
                 float xshift = x[i] - m;
                 v += xshift * xshift;
             }
-            v = v/C;
+            v = v / C;
             // calculate the rstd
             float s = 1.0f / sqrtf(v + eps);
             // seek to the output position in out[b,t,:]
-            float* out_bt = out + b * T * C + t * C;
+            float *out_bt = out + b * T * C + t * C;
             for (int i = 0; i < C; i++) {
                 float n = (s * (x[i] - m)); // normalized output
                 float o = n * weight[i] + bias[i]; // scale and shift it
@@ -43,14 +43,14 @@ void layernorm_forward(float* out, float* mean, float* rstd,
     }
 }
 
-void layernorm_backward(float* dinp, float* dweight, float* dbias,
-                        float* dout, float* inp, float* weight, float* mean, float* rstd,
+void layernorm_backward(float *dinp, float *dweight, float *dbias,
+                        float *dout, float *inp, float *weight, float *mean, float *rstd,
                         int B, int T, int C) {
     for (int b = 0; b < B; b++) {
         for (int t = 0; t < T; t++) {
-            float* dout_bt = dout + b * T * C + t * C;
-            float* inp_bt = inp + b * T * C + t * C;
-            float* dinp_bt = dinp + b * T * C + t * C;
+            float *dout_bt = dout + b * T * C + t * C;
+            float *inp_bt = inp + b * T * C + t * C;
+            float *dinp_bt = dinp + b * T * C + t * C;
             float mean_bt = mean[b * T + t];
             float rstd_bt = rstd[b * T + t];
 
@@ -87,7 +87,7 @@ void layernorm_backward(float* dinp, float* dweight, float* dbias,
 }
 
 // poor man's tensor checker
-int check_tensor(float *a, float *b, int n, char* label) {
+int check_tensor(float *a, float *b, int n, char *label) {
     int ok = 1;
     printf("%s\n", label);
     for (int i = 0; i < n; i++) {
@@ -108,16 +108,16 @@ int main() {
     int T = 3; // time / sequence length
     int C = 4; // number of channels
 
-    float* x = (float*) malloc(B * T * C * sizeof(float));
-    float* w = (float*) malloc(C * sizeof(float));
-    float* b = (float*) malloc(C * sizeof(float));
-    float* out = (float*) malloc(B * T * C * sizeof(float));
-    float* mean = (float*) malloc(B * T * sizeof(float));
-    float* rstd = (float*) malloc(B * T * sizeof(float));
-    float* dout = (float*) malloc(B * T * C * sizeof(float));
-    float* dx = (float*) malloc(B * T * C * sizeof(float));
-    float* dw = (float*) malloc(C * sizeof(float));
-    float* db = (float*) malloc(C * sizeof(float));
+    float *x = (float *) malloc(B * T * C * sizeof(float));
+    float *w = (float *) malloc(C * sizeof(float));
+    float *b = (float *) malloc(C * sizeof(float));
+    float *out = (float *) malloc(B * T * C * sizeof(float));
+    float *mean = (float *) malloc(B * T * sizeof(float));
+    float *rstd = (float *) malloc(B * T * sizeof(float));
+    float *dout = (float *) malloc(B * T * C * sizeof(float));
+    float *dx = (float *) malloc(B * T * C * sizeof(float));
+    float *dw = (float *) malloc(C * sizeof(float));
+    float *db = (float *) malloc(C * sizeof(float));
 
     // read reference information from Python
     FILE *file = fopen("ln.bin", "rb");
@@ -140,24 +140,24 @@ int main() {
     // now let's calculate everything ourselves
 
     // forward pass
-    float* c_out = (float*) malloc(B * T * C * sizeof(float));
-    float* c_mean = (float*) malloc(B * T * sizeof(float));
-    float* c_rstd = (float*) malloc(B * T * sizeof(float));
+    float *c_out = (float *) malloc(B * T * C * sizeof(float));
+    float *c_mean = (float *) malloc(B * T * sizeof(float));
+    float *c_rstd = (float *) malloc(B * T * sizeof(float));
     layernorm_forward(c_out, c_mean, c_rstd, x, w, b, B, T, C);
 
     // check correctness of forward pass
-    check_tensor(out, c_out, B*T*C, "out");
-    check_tensor(mean, c_mean, B*T, "mean");
-    check_tensor(rstd, c_rstd, B*T, "rstd");
+    check_tensor(out, c_out, B * T * C, "out");
+    check_tensor(mean, c_mean, B * T, "mean");
+    check_tensor(rstd, c_rstd, B * T, "rstd");
 
     // backward pass (note calloc inits grads to zero)
-    float* c_dx = (float*) calloc(B * T * C, sizeof(float));
-    float* c_dw = (float*) calloc(B * T, sizeof(float));
-    float* c_db = (float*) calloc(B * T, sizeof(float));
+    float *c_dx = (float *) calloc(B * T * C, sizeof(float));
+    float *c_dw = (float *) calloc(B * T, sizeof(float));
+    float *c_db = (float *) calloc(B * T, sizeof(float));
     layernorm_backward(c_dx, c_dw, c_db, dout, x, w, c_mean, c_rstd, B, T, C);
 
     // check correctness of backward pass
-    check_tensor(c_dx, dx, B*T*C, "dx");
+    check_tensor(c_dx, dx, B * T * C, "dx");
     check_tensor(c_dw, dw, C, "dw");
     check_tensor(c_db, db, C, "db");
 
